@@ -6,6 +6,10 @@ import android.hardware.Camera;
 import android.hardware.camera2.CameraCharacteristics;
 import android.support.annotation.NonNull;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -18,6 +22,9 @@ public class CameraOptions {
     private Set<WhiteBalance> supportedWhiteBalance = new HashSet<>(5);
     private Set<Facing> supportedFacing = new HashSet<>(2);
     private Set<Flash> supportedFlash = new HashSet<>(4);
+    private Set<Hdr> supportedHdr = new HashSet<>(2);
+    private Set<Size> supportedPictureSizes = new HashSet<>(15);
+    private Set<AspectRatio> supportedPictureAspectRatio = new HashSet<>(4);
 
     private boolean zoomSupported;
     private boolean videoSnapshotSupported;
@@ -29,7 +36,7 @@ public class CameraOptions {
 
     // Camera1 constructor.
     @SuppressWarnings("deprecation")
-    CameraOptions(Camera.Parameters params) {
+    CameraOptions(Camera.Parameters params, boolean flipSizes) {
         List<String> strings;
         Mapper mapper = new Mapper.Mapper1();
 
@@ -59,6 +66,15 @@ public class CameraOptions {
             }
         }
 
+        // Hdr
+        strings = params.getSupportedSceneModes();
+        if (strings != null) {
+            for (String string : strings) {
+                Hdr value = mapper.unmapHdr(string);
+                if (value != null) supportedHdr.add(value);
+            }
+        }
+
         zoomSupported = params.isZoomSupported();
         videoSnapshotSupported = params.isVideoSnapshotSupported();
         autoFocusSupported = params.getSupportedFocusModes().contains(Camera.Parameters.FOCUS_MODE_AUTO);
@@ -69,12 +85,104 @@ public class CameraOptions {
         exposureCorrectionMaxValue = (float) params.getMaxExposureCompensation() * step;
         exposureCorrectionSupported = params.getMinExposureCompensation() != 0
                 || params.getMaxExposureCompensation() != 0;
+
+        // Sizes
+        List<Camera.Size> sizes = params.getSupportedPictureSizes();
+        for (Camera.Size size : sizes) {
+            int width = flipSizes ? size.height : size.width;
+            int height = flipSizes ? size.width : size.height;
+            supportedPictureSizes.add(new Size(width, height));
+            supportedPictureAspectRatio.add(AspectRatio.of(width, height));
+        }
     }
 
 
     // Camera2 constructor.
     @TargetApi(21)
     CameraOptions(CameraCharacteristics params) {}
+
+
+    /**
+     * Shorthand for getSupported*().contains(value).
+     *
+     * @param control value to check
+     * @return whether it's supported
+     */
+    public boolean supports(Control control) {
+        return getSupportedControls(control.getClass()).contains(control);
+    }
+
+
+    /**
+     * Shorthand for other methods in this class,
+     * e.g. supports(GestureAction.ZOOM) == isZoomSupported().
+     *
+     * @param action value to be checked
+     * @return whether it's supported
+     */
+    public boolean supports(GestureAction action) {
+        switch (action) {
+            case FOCUS:
+            case FOCUS_WITH_MARKER:
+                return isAutoFocusSupported();
+            case CAPTURE:
+            case NONE:
+                return true;
+            case ZOOM:
+                return isZoomSupported();
+            case EXPOSURE_CORRECTION:
+                return isExposureCorrectionSupported();
+        }
+        return false;
+    }
+
+
+    @SuppressWarnings("unchecked")
+    public <T extends Control> Collection<T> getSupportedControls(@NonNull Class<T> controlClass) {
+        if (controlClass.equals(Audio.class)) {
+            return (Collection<T>) Arrays.asList(Audio.values());
+        } else if (controlClass.equals(Facing.class)) {
+            return (Collection<T>) getSupportedFacing();
+        } else if (controlClass.equals(Flash.class)) {
+            return (Collection<T>) getSupportedFlash();
+        } else if (controlClass.equals(Grid.class)) {
+            return (Collection<T>) Arrays.asList(Grid.values());
+        } else if (controlClass.equals(Hdr.class)) {
+            return (Collection<T>) getSupportedHdr();
+        } else if (controlClass.equals(SessionType.class)) {
+            return (Collection<T>) Arrays.asList(SessionType.values());
+        } else if (controlClass.equals(VideoQuality.class)) {
+            return (Collection<T>) Arrays.asList(VideoQuality.values());
+        } else if (controlClass.equals(WhiteBalance.class)) {
+            return (Collection<T>) getSupportedWhiteBalance();
+        }
+        // Unrecognized control.
+        return Collections.emptyList();
+    }
+
+
+    /**
+     * Set of supported picture sizes for the currently opened camera.
+     *
+     * @return a set of supported values.
+     */
+    @NonNull
+    public Set<Size> getSupportedPictureSizes() {
+        // TODO v2: return a Collection
+        return Collections.unmodifiableSet(supportedPictureSizes);
+    }
+
+
+    /**
+     * Set of supported picture aspect ratios for the currently opened camera.
+     *
+     * @return a set of supported values.
+     */
+    @NonNull
+    public Set<AspectRatio> getSupportedPictureAspectRatios() {
+        // TODO v2: return a Collection
+        return Collections.unmodifiableSet(supportedPictureAspectRatio);
+    }
 
 
     /**
@@ -86,7 +194,8 @@ public class CameraOptions {
      */
     @NonNull
     public Set<Facing> getSupportedFacing() {
-        return supportedFacing;
+        // TODO v2: return a Collection
+        return Collections.unmodifiableSet(supportedFacing);
     }
 
 
@@ -101,7 +210,8 @@ public class CameraOptions {
      */
     @NonNull
     public Set<Flash> getSupportedFlash() {
-        return supportedFlash;
+        // TODO v2: return a Collection
+        return Collections.unmodifiableSet(supportedFlash);
     }
 
 
@@ -117,9 +227,23 @@ public class CameraOptions {
      */
     @NonNull
     public Set<WhiteBalance> getSupportedWhiteBalance() {
-        return supportedWhiteBalance;
+        // TODO v2: return a Collection
+        return Collections.unmodifiableSet(supportedWhiteBalance);
     }
 
+
+    /**
+     * Set of supported hdr values.
+     *
+     * @see Hdr#OFF
+     * @see Hdr#ON
+     * @return a set of supported values.
+     */
+    @NonNull
+    public Set<Hdr> getSupportedHdr() {
+        // TODO v2: return a Collection
+        return Collections.unmodifiableSet(supportedHdr);
+    }
 
     /**
      * Whether zoom is supported. If this is false, pinch-to-zoom

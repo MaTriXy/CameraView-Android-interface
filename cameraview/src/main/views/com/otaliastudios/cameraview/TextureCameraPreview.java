@@ -3,22 +3,28 @@ package com.otaliastudios.cameraview;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.SurfaceTexture;
+import android.support.annotation.NonNull;
+import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 
-@TargetApi(14)
-class TextureViewPreview extends Preview {
+class TextureCameraPreview extends CameraPreview<TextureView, SurfaceTexture> {
 
-    private final TextureView mTextureView;
     private Surface mSurface;
 
-    TextureViewPreview(Context context, ViewGroup parent) {
-        super(context, parent);
-        final View view = View.inflate(context, R.layout.texture_view, parent); // MATCH_PARENT
-        mTextureView = (TextureView) view.findViewById(R.id.texture_view);
-        mTextureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+    TextureCameraPreview(Context context, ViewGroup parent, SurfaceCallback callback) {
+        super(context, parent, callback);
+    }
+
+    @NonNull
+    @Override
+    protected TextureView onCreateView(Context context, ViewGroup parent) {
+        View root = LayoutInflater.from(context).inflate(R.layout.texture_view, parent, false);
+        parent.addView(root, 0);
+        TextureView texture = root.findViewById(R.id.texture_view);
+        texture.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
 
             @Override
             public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
@@ -40,42 +46,33 @@ class TextureViewPreview extends Preview {
             public void onSurfaceTextureUpdated(SurfaceTexture surface) {
             }
         });
+        return texture;
     }
 
     @Override
     Surface getSurface() {
         if (mSurface == null) { // Check if valid?
-            mSurface = new Surface(getSurfaceTexture());
+            mSurface = new Surface(getOutput());
         }
         return mSurface;
     }
 
     @Override
-    View getView() {
-        return mTextureView;
-    }
-
-    @Override
-    Class getOutputClass() {
+    Class<SurfaceTexture> getOutputClass() {
         return SurfaceTexture.class;
     }
 
     @Override
-    boolean isReady() {
-        return getSurfaceTexture() != null;
-    }
-
-    @Override
-    SurfaceTexture getSurfaceTexture() {
-        return mTextureView.getSurfaceTexture();
+    SurfaceTexture getOutput() {
+        return getView().getSurfaceTexture();
     }
 
     @TargetApi(15)
     @Override
     void setDesiredSize(int width, int height) {
         super.setDesiredSize(width, height);
-        if (mTextureView.getSurfaceTexture() != null) {
-            mTextureView.getSurfaceTexture().setDefaultBufferSize(width, height);
+        if (getView().getSurfaceTexture() != null) {
+            getView().getSurfaceTexture().setDefaultBufferSize(width, height);
         }
     }
 

@@ -21,12 +21,13 @@ class CropHelper {
     // In doing so, EXIF data is deleted.
     static byte[] cropToJpeg(byte[] jpeg, AspectRatio targetRatio, int jpegCompression) {
 
-        Bitmap image = CameraUtils.decodeBitmap(jpeg);
+        Bitmap image = CameraUtils.decodeBitmap(jpeg, Integer.MAX_VALUE, Integer.MAX_VALUE);
         Rect cropRect = computeCrop(image.getWidth(), image.getHeight(), targetRatio);
         Bitmap crop = Bitmap.createBitmap(image, cropRect.left, cropRect.top, cropRect.width(), cropRect.height());
         image.recycle();
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         crop.compress(Bitmap.CompressFormat.JPEG, jpegCompression, out);
+        crop.recycle();
         return out.toByteArray();
     }
 
