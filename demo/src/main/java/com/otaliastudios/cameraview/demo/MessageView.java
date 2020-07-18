@@ -2,20 +2,11 @@ package com.otaliastudios.cameraview.demo;
 
 
 import android.content.Context;
-import android.support.annotation.Nullable;
+import androidx.annotation.Nullable;
 import android.util.AttributeSet;
-import android.util.Log;
-import android.view.View;
 import android.view.ViewGroup;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.LinearLayout;
-import android.widget.Spinner;
 import android.widget.TextView;
-
-import com.otaliastudios.cameraview.CameraView;
-
-import java.util.ArrayList;
 
 public class MessageView extends LinearLayout {
 
@@ -33,11 +24,16 @@ public class MessageView extends LinearLayout {
     public MessageView(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         setOrientation(VERTICAL);
-        inflate(context, R.layout.control_view, this);
+        inflate(context, R.layout.option_view, this);
         ViewGroup content = findViewById(R.id.content);
         inflate(context, R.layout.spinner_text, content);
         title = findViewById(R.id.title);
         message = (TextView) content.getChildAt(0);
+    }
+
+    public void setTitleAndMessage(String title, String message) {
+        setTitle(title);
+        setMessage(message);
     }
 
     public void setTitle(String title) {
