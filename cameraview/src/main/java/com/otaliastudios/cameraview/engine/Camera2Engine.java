@@ -61,6 +61,7 @@ import com.otaliastudios.cameraview.frame.FrameManager;
 import com.otaliastudios.cameraview.frame.ImageFrameManager;
 import com.otaliastudios.cameraview.gesture.Gesture;
 import com.otaliastudios.cameraview.internal.CropHelper;
+import com.otaliastudios.cameraview.internal.FpsRangeValidator;
 import com.otaliastudios.cameraview.metering.MeteringRegions;
 import com.otaliastudios.cameraview.picture.Full2PictureRecorder;
 import com.otaliastudios.cameraview.picture.Snapshot2PictureRecorder;
@@ -226,6 +227,15 @@ public class Camera2Engine extends CameraBaseEngine implements
         if (mFrameProcessingSurface != null) {
             mRepeatingRequestBuilder.removeTarget(mFrameProcessingSurface);
         }
+    }
+
+    /**
+     * Can be changed to select something different than {@link CameraDevice#TEMPLATE_PREVIEW}
+     * for the default repeating request.
+     * @return the default template for preview
+     */
+    protected int getRepeatingRequestDefaultTemplate() {
+        return CameraDevice.TEMPLATE_PREVIEW;
     }
 
     /**
@@ -419,7 +429,7 @@ public class Camera2Engine extends CameraBaseEngine implements
                                     + mPictureFormat);
                         }
                         mCameraOptions = new Camera2Options(mManager, mCameraId, flip, format);
-                        createRepeatingRequestBuilder(CameraDevice.TEMPLATE_PREVIEW);
+                        createRepeatingRequestBuilder(getRepeatingRequestDefaultTemplate());
                     } catch (CameraAccessException e) {
                         task.trySetException(createCameraException(e));
                         return;
@@ -469,7 +479,7 @@ public class Camera2Engine extends CameraBaseEngine implements
 
         // Compute sizes.
         // TODO preview stream should never be bigger than 1920x1080 as per
-        //  CameraDevice.createCaptureSession. This should be probably be applied
+        //  CameraDevice.createCaptureSession. This should probably be applied
         //  before all the other external selectors, to treat it as a hard limit.
         //  OR: pass an int into these functions to be able to take smaller dims
         //  when session configuration fails
@@ -489,6 +499,7 @@ public class Camera2Engine extends CameraBaseEngine implements
         if (outputClass == SurfaceHolder.class) {
             try {
                 // This must be called from the UI thread...
+                LOG.i("onStartBind:", "Waiting on UI thread...");
                 Tasks.await(Tasks.call(new Callable<Void>() {
                     @Override
                     public Void call() {
@@ -579,9 +590,15 @@ public class Camera2Engine extends CameraBaseEngine implements
 
                 @Override
                 public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-                    // This SHOULD be a library error so we throw a RuntimeException.
                     String message = LOG.e("onConfigureFailed! Session", session);
-                    throw new RuntimeException(message);
+                    Throwable cause = new RuntimeException(message);
+                    if (!task.getTask().isComplete()) {
+                        task.trySetException(new CameraException(cause,
+                                CameraException.REASON_FAILED_TO_START_PREVIEW));
+                    } else {
+                        // Like onStartEngine.onError
+                        throw new CameraException(CameraException.REASON_DISCONNECTED);
+                    }
                 }
 
                 @Override
@@ -977,9 +994,9 @@ public class Camera2Engine extends CameraBaseEngine implements
     @EngineThread
     private void maybeRestorePreviewTemplateAfterVideo() {
         int template = (int) mRepeatingRequestBuilder.build().getTag();
-        if (template != CameraDevice.TEMPLATE_PREVIEW) {
+        if (template != getRepeatingRequestDefaultTemplate()) {
             try {
-                createRepeatingRequestBuilder(CameraDevice.TEMPLATE_PREVIEW);
+                createRepeatingRequestBuilder(getRepeatingRequestDefaultTemplate());
                 addRepeatingRequestBuilderSurfaces();
                 applyRepeatingRequestBuilder();
             } catch (CameraAccessException e) {
@@ -1246,8 +1263,10 @@ public class Camera2Engine extends CameraBaseEngine implements
     public void setZoom(final float zoom, final @Nullable PointF[] points, final boolean notify) {
         final float old = mZoomValue;
         mZoomValue = zoom;
+        // Zoom requests can be high frequency (e.g. linked to touch events), let's trim the oldest.
+        getOrchestrator().trim("zoom", ALLOWED_ZOOM_OPS);
         mZoomTask = getOrchestrator().scheduleStateful(
-                "zoom (" + zoom + ")",
+                "zoom",
                 CameraState.ENGINE,
                 new Runnable() {
             @Override
@@ -1302,8 +1321,10 @@ public class Camera2Engine extends CameraBaseEngine implements
                                       final boolean notify) {
         final float old = mExposureCorrectionValue;
         mExposureCorrectionValue = EVvalue;
+        // EV requests can be high frequency (e.g. linked to touch events), let's trim the oldest.
+        getOrchestrator().trim("exposure correction", ALLOWED_EV_OPS);
         mExposureCorrectionTask = getOrchestrator().scheduleStateful(
-                "exposure correction (" + EVvalue + ")",
+                "exposure correction",
                 CameraState.ENGINE,
                 new Runnable() {
             @Override
@@ -1361,14 +1382,13 @@ public class Camera2Engine extends CameraBaseEngine implements
     protected boolean applyPreviewFrameRate(@NonNull CaptureRequest.Builder builder,
                                             float oldPreviewFrameRate) {
         //noinspection unchecked
-        Range<Integer>[] fallback = new Range[]{};
         Range<Integer>[] fpsRanges = readCharacteristic(
                 CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES,
-                fallback);
-        sortRanges(fpsRanges);
+                new Range[]{});
+        sortFrameRateRanges(fpsRanges);
         if (mPreviewFrameRate == 0F) {
             // 0F is a special value. Fallback to a reasonable default.
-            for (Range<Integer> fpsRange : fpsRanges) {
+            for (Range<Integer> fpsRange : filterFrameRateRanges(fpsRanges)) {
                 if (fpsRange.contains(30) || fpsRange.contains(24)) {
                     builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange);
                     return true;
@@ -1380,7 +1400,7 @@ public class Camera2Engine extends CameraBaseEngine implements
                     mCameraOptions.getPreviewFrameRateMaxValue());
             mPreviewFrameRate = Math.max(mPreviewFrameRate,
                     mCameraOptions.getPreviewFrameRateMinValue());
-            for (Range<Integer> fpsRange : fpsRanges) {
+            for (Range<Integer> fpsRange : filterFrameRateRanges(fpsRanges)) {
                 if (fpsRange.contains(Math.round(mPreviewFrameRate))) {
                     builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange);
                     return true;
@@ -1391,24 +1411,33 @@ public class Camera2Engine extends CameraBaseEngine implements
         return false;
     }
 
-    private void sortRanges(Range<Integer>[] fpsRanges) {
-        if (getPreviewFrameRateExact() && mPreviewFrameRate != 0) { // sort by range width in ascending order
-            Arrays.sort(fpsRanges, new Comparator<Range<Integer>>() {
-                @Override
-                public int compare(Range<Integer> range1, Range<Integer> range2) {
+    private void sortFrameRateRanges(@NonNull Range<Integer>[] fpsRanges) {
+        final boolean ascending = getPreviewFrameRateExact() && mPreviewFrameRate != 0;
+        Arrays.sort(fpsRanges, new Comparator<Range<Integer>>() {
+            @Override
+            public int compare(Range<Integer> range1, Range<Integer> range2) {
+                if (ascending) {
                     return (range1.getUpper() - range1.getLower())
                             - (range2.getUpper() - range2.getLower());
-                }
-            });
-        } else { // sort by range width in descending order
-            Arrays.sort(fpsRanges, new Comparator<Range<Integer>>() {
-                @Override
-                public int compare(Range<Integer> range1, Range<Integer> range2) {
+                } else {
                     return (range2.getUpper() - range2.getLower())
                             - (range1.getUpper() - range1.getLower());
                 }
-            });
+            }
+        });
+    }
+
+    @NonNull
+    protected List<Range<Integer>> filterFrameRateRanges(@NonNull Range<Integer>[] fpsRanges) {
+        List<Range<Integer>> results = new ArrayList<>();
+        int min = Math.round(mCameraOptions.getPreviewFrameRateMinValue());
+        int max = Math.round(mCameraOptions.getPreviewFrameRateMaxValue());
+        for (Range<Integer> fpsRange : fpsRanges) {
+            if (!fpsRange.contains(min) && !fpsRange.contains(max)) continue;
+            if (!FpsRangeValidator.validate(fpsRange)) continue;
+            results.add(fpsRange);
         }
+        return results;
     }
 
     @Override

@@ -1,44 +1,43 @@
-import com.otaliastudios.tools.publisher.common.License
-import com.otaliastudios.tools.publisher.common.Release
+import io.deepmedia.tools.publisher.common.License
+import io.deepmedia.tools.publisher.common.Release
+import io.deepmedia.tools.publisher.common.GithubScm
 
 plugins {
     id("com.android.library")
     id("kotlin-android")
-    id("com.otaliastudios.tools.publisher")
+    id("io.deepmedia.tools.publisher")
     id("jacoco")
 }
 
 android {
-    setCompileSdkVersion(rootProject.property("compileSdkVersion") as Int)
+    compileSdk = property("compileSdkVersion") as Int
     defaultConfig {
-        setMinSdkVersion(rootProject.property("minSdkVersion") as Int)
-        setTargetSdkVersion(rootProject.property("targetSdkVersion") as Int)
-        versionCode = 1
-        versionName = "2.6.3"
+        minSdk = property("minSdkVersion") as Int
+        targetSdk = property("targetSdkVersion") as Int
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        testInstrumentationRunnerArgument("filter", "" +
+        testInstrumentationRunnerArguments["filter"] = "" +
                 "com.otaliastudios.cameraview.tools.SdkExcludeFilter," +
-                "com.otaliastudios.cameraview.tools.SdkIncludeFilter")
+                "com.otaliastudios.cameraview.tools.SdkIncludeFilter"
     }
     buildTypes["debug"].isTestCoverageEnabled = true
     buildTypes["release"].isMinifyEnabled = false
 }
 
 dependencies {
-    testImplementation("junit:junit:4.12")
+    testImplementation("junit:junit:4.13.1")
     testImplementation("org.mockito:mockito-inline:2.28.2")
 
-    androidTestImplementation("androidx.test:runner:1.2.0")
-    androidTestImplementation("androidx.test:rules:1.2.0")
-    androidTestImplementation("androidx.test.ext:junit:1.1.1")
+    androidTestImplementation("androidx.test:runner:1.4.0")
+    androidTestImplementation("androidx.test:rules:1.4.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.3")
     androidTestImplementation("org.mockito:mockito-android:2.28.2")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.2.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.4.0")
 
-    api("androidx.exifinterface:exifinterface:1.1.0")
-    api("androidx.lifecycle:lifecycle-common:2.1.0")
-    api("com.google.android.gms:play-services-tasks:17.0.0")
-    implementation("androidx.annotation:annotation:1.1.0")
-    implementation("com.otaliastudios.opengl:egloo:0.5.2")
+    api("androidx.exifinterface:exifinterface:1.3.3")
+    api("androidx.lifecycle:lifecycle-common:2.3.1")
+    api("com.google.android.gms:play-services-tasks:17.2.1")
+    implementation("androidx.annotation:annotation:1.2.0")
+    implementation("com.otaliastudios.opengl:egloo:0.6.1")
 }
 
 // Publishing
@@ -50,16 +49,29 @@ publisher {
     project.artifact = "cameraview"
     project.group = "com.otaliastudios"
     project.url = "https://github.com/natario1/CameraView"
+    project.scm = GithubScm("natario1", "CameraView")
     project.addLicense(License.APACHE_2_0)
-    release.setSources(Release.SOURCES_AUTO)
-    release.setDocs(Release.DOCS_AUTO)
-    bintray {
-        auth.user = "BINTRAY_USER"
-        auth.key = "BINTRAY_KEY"
-        auth.repo = "BINTRAY_REPO"
+    project.addDeveloper("natario1", "mat.iavarone@gmail.com")
+    release.sources = Release.SOURCES_AUTO
+    release.docs = Release.DOCS_AUTO
+    release.version = "2.7.2"
+
+    directory()
+
+    sonatype {
+        auth.user = "SONATYPE_USER"
+        auth.password = "SONATYPE_PASSWORD"
+        signing.key = "SIGNING_KEY"
+        signing.password = "SIGNING_PASSWORD"
     }
-    directory {
-        directory = "build/local"
+
+    sonatype("snapshot") {
+        repository = io.deepmedia.tools.publisher.sonatype.Sonatype.OSSRH_SNAPSHOT_1
+        release.version = "latest-SNAPSHOT"
+        auth.user = "SONATYPE_USER"
+        auth.password = "SONATYPE_PASSWORD"
+        signing.key = "SIGNING_KEY"
+        signing.password = "SIGNING_PASSWORD"
     }
 }
 
@@ -74,7 +86,7 @@ tasks.register("runUnitTests") { // changing name? change github workflow
     dependsOn("testDebugUnitTest")
     doLast {
         copy {
-            from("$buildDir/jacoco/testDebugUnitTest.exec")
+            from("$buildDir/outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec")
             into("$coverageInputDir/unit_tests") // changing? change github workflow
         }
     }
@@ -93,11 +105,11 @@ tasks.register("runAndroidTests") { // changing name? change github workflow
 }
 
 // Merge the two with a jacoco task.
-jacoco { toolVersion = "0.8.1" }
+jacoco { toolVersion = "0.8.5" }
 tasks.register("computeCoverage", JacocoReport::class) {
     dependsOn("compileDebugSources") // Compile sources, needed below
     executionData.from(fileTree(coverageInputDir))
-    sourceDirectories.from(android.sourceSets["main"].java.sourceFiles)
+    sourceDirectories.from(android.sourceSets["main"].java.srcDirs)
     additionalSourceDirs.from("$buildDir/generated/source/buildConfig/debug")
     additionalSourceDirs.from("$buildDir/generated/source/r/debug")
     classDirectories.from(fileTree("$buildDir/intermediates/javac/debug") {
@@ -118,8 +130,8 @@ tasks.register("computeCoverage", JacocoReport::class) {
                 "**/com/otaliastudios/cameraview/filters/**.*"
         )
     })
-    reports.html.isEnabled = true
-    reports.xml.isEnabled = true
-    reports.html.destination = file("$coverageOutputDir/html")
-    reports.xml.destination = file("$coverageOutputDir/xml/report.xml")
+    reports.html.required.set(true)
+    reports.xml.required.set(true)
+    reports.html.outputLocation.set(file("$coverageOutputDir/html"))
+    reports.xml.outputLocation.set(file("$coverageOutputDir/xml/report.xml"))
 }

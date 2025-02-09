@@ -29,7 +29,7 @@ cameraView.addFrameProcessor(new FrameProcessor() {
             // Process android.media.Image...
         }
     }
-}
+});
 ```
 
 For your convenience, the `FrameProcessor` method is run in a background thread so you can do your job
@@ -120,7 +120,7 @@ You can check which formats are available for use through `CameraOptions.getSupp
 ### Advanced: Thread Control
 
 Starting from `v2.5.1`, you can control the number of background threads that are allocated
-for frame processing work. This should further push you into perform processing actions synchronously
+for frame processing work. This should further push you into performing processing actions synchronously
 and can be useful if processing is very slow with respect to the preview frame rate, in order to
 avoid dropping too many frames.
 

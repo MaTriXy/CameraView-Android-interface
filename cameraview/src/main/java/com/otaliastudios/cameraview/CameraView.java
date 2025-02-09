@@ -133,6 +133,7 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
     private Engine mEngine;
     private Filter mPendingFilter;
     private int mFrameProcessingExecutors;
+    private int mActiveGestures;
 
     // Components
     private Handler mUiHandler;
@@ -226,6 +227,8 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
         int frameExecutors = a.getInteger(R.styleable.CameraView_cameraFrameProcessingExecutors,
                 DEFAULT_FRAME_PROCESSING_EXECUTORS);
 
+        boolean drawHardwareOverlays = a.getBoolean(R.styleable.CameraView_cameraDrawHardwareOverlays, false);
+
         // Size selectors and gestures
         SizeSelectorParser sizeSelectors = new SizeSelectorParser(a);
         GestureParser gestures = new GestureParser(a);
@@ -259,6 +262,7 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
         setUseDeviceOrientation(useDeviceOrientation);
         setGrid(controls.getGrid());
         setGridColor(gridColor);
+        setDrawHardwareOverlays(drawHardwareOverlays);
 
         // Apply camera engine params
         // Adding new ones? See setEngine().
@@ -394,12 +398,10 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
             // attached. That's why we instantiate the preview here.
             doInstantiatePreview();
         }
-        mOrientationHelper.enable();
     }
 
     @Override
     protected void onDetachedFromWindow() {
-        if (!mInEditor) mOrientationHelper.disable();
         mLastPreviewStreamSize = null;
         super.onDetachedFromWindow();
     }
@@ -607,6 +609,12 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
                             mGestureMap.get(Gesture.SCROLL_VERTICAL) != none);
                     break;
             }
+
+            mActiveGestures = 0;
+            for(GestureAction act : mGestureMap.values()) {
+                mActiveGestures += act == GestureAction.NONE ? 0 : 1;
+            }
+
             return true;
         }
         mapGesture(gesture, none);
@@ -635,7 +643,8 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        return true; // Steal our own events.
+        // Steal our own events if gestures are enabled
+        return mActiveGestures > 0;
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -670,6 +679,10 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
         float oldValue, newValue;
         //noinspection ConstantConditions
         switch (action) {
+
+            case TAKE_PICTURE_SNAPSHOT:
+                takePictureSnapshot();
+                break;
 
             case TAKE_PICTURE:
                 takePicture();
@@ -732,6 +745,7 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
      * Sets permissions flag if you want enable auto check permissions or disable it.
      * @param requestPermissions - true: auto check permissions enabled, false: auto check permissions disabled.
      */
+    @SuppressWarnings("unused")
     public void setRequestPermissions(boolean requestPermissions) {
         mRequestPermissions = requestPermissions;
     }
@@ -855,6 +869,7 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
     @OnLifecycleEvent(Lifecycle.Event.ON_PAUSE)
     public void close() {
         if (mInEditor) return;
+        mOrientationHelper.disable();
         mCameraEngine.stop(false);
         if (mCameraPreview != null) mCameraPreview.onPause();
     }
@@ -1809,6 +1824,7 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
      * @param fileDescriptor a file descriptor where the video will be saved
      * @param durationMillis recording max duration
      */
+    @SuppressWarnings("unused")
     public void takeVideo(@NonNull FileDescriptor fileDescriptor, int durationMillis) {
         takeVideo(null, fileDescriptor, durationMillis);
     }
@@ -2143,6 +2159,25 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
         return mCameraEngine.isTakingPicture();
     }
 
+    /**
+     * Sets the overlay layout hardware canvas capture mode to allow hardware
+     * accelerated views to be captured in snapshots
+     *
+     * @param on true if enabled
+     */
+    public void setDrawHardwareOverlays(boolean on) {
+        mOverlayLayout.setHardwareCanvasEnabled(on);
+    }
+
+    /**
+     * Returns true if the overlay layout is set to capture the hardware canvas
+     * of child views
+     *
+     * @return boolean indicating hardware canvas capture is enabled
+     */
+    public boolean getDrawHardwareOverlays() {
+        return mOverlayLayout.getHardwareCanvasEnabled();
+    }
     //endregion
 
     //region Callbacks and dispatching
@@ -2223,10 +2258,18 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
         }
 
         @Override
-        public void onShutter(boolean shouldPlaySound) {
+        public void dispatchOnPictureShutter(boolean shouldPlaySound) {
             if (shouldPlaySound && mPlaySounds) {
                 playSound(MediaActionSound.SHUTTER_CLICK);
             }
+            mUiHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    for (CameraListener listener : mListeners) {
+                        listener.onPictureShutter();
+                    }
+                }
+            });
         }
 
         @Override
@@ -2327,12 +2370,10 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
         }
 
         @Override
-        public void onDisplayOffsetChanged(int displayOffset, boolean willRecreate) {
-            LOG.i("onDisplayOffsetChanged", displayOffset, "recreate:", willRecreate);
-            if (isOpened() && !willRecreate) {
-                // Display offset changes when the device rotation lock is off and the activity
-                // is free to rotate. However, some changes will NOT recreate the activity, namely
-                // 180 degrees flips. In this case, we must restart the camera manually.
+        public void onDisplayOffsetChanged() {
+            if (isOpened()) {
+                // We can't handle display offset (View angle) changes without restarting.
+                // See comments in OrientationHelper for more information.
                 LOG.w("onDisplayOffsetChanged", "restarting the camera.");
                 close();
                 open();
